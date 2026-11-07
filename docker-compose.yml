@@ -1,0 +1,40 @@
+# Everything local & free. `docker compose up -d` then run the Python side from a venv.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: ops, POSTGRES_PASSWORD: ops, POSTGRES_DB: opssentinel}
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  hindsight:
+    image: ghcr.io/vectorize-io/hindsight:latest
+    ports: ["8888:8888", "9999:9999"]
+    shm_size: 1g
+    environment:
+      HINDSIGHT_API_LLM_PROVIDER: ${HINDSIGHT_LLM_PROVIDER:-groq}
+      HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_LLM_MODEL:-openai/gpt-oss-20b}
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_LLM_API_KEY}
+      HINDSIGHT_API_WORKER_ID: hindsight-local
+    volumes: [hindsight:/home/hindsight/.pg0]
+  loki:
+    image: grafana/loki:3.0.0
+    ports: ["3100:3100"]
+    command: -config.file=/etc/loki/local-config.yaml
+  promtail:
+    image: grafana/promtail:3.0.0
+    volumes: ["./data/logs:/logs:ro", "./config/promtail.yml:/etc/promtail/config.yml:ro"]
+    command: -config.file=/etc/promtail/config.yml
+    depends_on: [loki]
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    ports: ["9090:9090"]
+    volumes: ["./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports: ["3000:3000"]
+    environment: {GF_AUTH_ANONYMOUS_ENABLED: "true", GF_AUTH_ANONYMOUS_ORG_ROLE: Admin}
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus, loki]
+volumes: {pgdata: {}, hindsight: {}}
